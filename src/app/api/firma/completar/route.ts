@@ -1,61 +1,121 @@
+
 // src/app/api/firma/completar/route.ts
+
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { emitSessionEvent } from '@/lib/signature/session-events';
 import { validateStrokes } from '@/lib/signature/stroke-utils';
 import { encryptBuffer, pngDataUrlToBuffer } from '@/lib/signature/crypto';
 
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '2mb',
-    },
-  },
-};
+const MAX_BODY_SIZE = 2 * 1024 * 1024; // 2 MB
 
 export async function POST(req: Request) {
   try {
+    // 1. Control preventivo del tamaño declarado del cuerpo
+    const contentLength = req.headers.get('content-length');
+
+    if (contentLength !== null) {
+      const declaredSize = Number(contentLength);
+
+      if (!Number.isFinite(declaredSize) || declaredSize < 0) {
+        return NextResponse.json(
+          { success: false, error: 'Tamaño de solicitud inválido.' },
+          { status: 400 }
+        );
+      }
+
+      if (declaredSize > MAX_BODY_SIZE) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'El tamaño de los datos de firma excede el límite permitido (2MB).',
+          },
+          { status: 413 }
+        );
+      }
+    }
+
+    // 2. Leer el cuerpo de la solicitud
     const bodyText = await req.text();
 
-    // 1. Limitar tamaño estricto del cuerpo para seguridad (máx 2MB)
-    if (bodyText.length > 2 * 1024 * 1024) {
+    // Validar tamaño real en bytes UTF-8
+    const bodySize = new TextEncoder().encode(bodyText).byteLength;
+
+    if (bodySize > MAX_BODY_SIZE) {
       return NextResponse.json(
-        { success: false, error: 'El tamaño de los datos de firma excede el límite permitido (2MB).' },
+        {
+          success: false,
+          error: 'El tamaño de los datos de firma excede el límite permitido (2MB).',
+        },
         { status: 413 }
       );
     }
 
+    // 3. Parsear JSON
     let payload: any;
+
     try {
       payload = JSON.parse(bodyText);
     } catch {
-      return NextResponse.json({ success: false, error: 'Cuerpo de solicitud JSON inválido' }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: 'Cuerpo de solicitud JSON inválido' },
+        { status: 400 }
+      );
+    }
+
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return NextResponse.json(
+        { success: false, error: 'Formato de solicitud inválido.' },
+        { status: 400 }
+      );
     }
 
     const { token, strokes, pngDataUrl } = payload;
 
+    // 4. Validar token
     if (!token || typeof token !== 'string') {
-      return NextResponse.json({ success: false, error: 'Token no provisto o inválido' }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: 'Token no provisto o inválido' },
+        { status: 400 }
+      );
     }
 
-    // 2. Validar que la firma no esté vacía y contenga trazos manuscritos válidos
+    // 5. Validar trazos manuscritos
     const validation = validateStrokes(strokes);
+
     if (!validation.valid) {
       return NextResponse.json(
-        { success: false, error: validation.reason || 'La firma proporcionada no es válida o está vacía.' },
+        {
+          success: false,
+          error: validation.reason || 'La firma proporcionada no es válida o está vacía.',
+        },
         { status: 422 }
       );
     }
 
-    // 3. Validar MIME, firma binaria PNG y tamaño de la imagen
+    // 6. Validar MIME, firma binaria PNG y tamaño de imagen
     let pngBuffer: Buffer;
+
     try {
       pngBuffer = pngDataUrlToBuffer(pngDataUrl);
+
+      if (pngBuffer.length > MAX_BODY_SIZE) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'La imagen de firma excede el límite permitido (2MB).',
+          },
+          { status: 413 }
+        );
+      }
     } catch (e: any) {
-      return NextResponse.json({ success: false, error: e.message }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: e.message || 'Imagen de firma inválida.' },
+        { status: 400 }
+      );
     }
 
-    // 4. Buscar sesión en la base de datos
+    // 7. Buscar sesión de firma
     const session = await prisma.firmaSesion.findUnique({
       where: { token },
       include: {
@@ -66,10 +126,13 @@ export async function POST(req: Request) {
     });
 
     if (!session) {
-      return NextResponse.json({ success: false, error: 'Sesión de firma inexistente' }, { status: 404 });
+      return NextResponse.json(
+        { success: false, error: 'Sesión de firma inexistente' },
+        { status: 404 }
+      );
     }
 
-    // 5. Validar uso único y estado
+    // 8. Validar estado de la sesión
     if (session.estado === 'completed') {
       return NextResponse.json(
         {
@@ -93,12 +156,18 @@ export async function POST(req: Request) {
     }
 
     const now = new Date();
+
     if (session.estado === 'expired' || now > session.expiresAt) {
       await prisma.firmaSesion.update({
         where: { id: session.id },
         data: { estado: 'expired' },
       });
-      emitSessionEvent(token, { type: 'expired', estado: 'expired' });
+
+      emitSessionEvent(token, {
+        type: 'expired',
+        estado: 'expired',
+      });
+
       return NextResponse.json(
         {
           success: false,
@@ -109,50 +178,86 @@ export async function POST(req: Request) {
       );
     }
 
-    // 6. Invalidar el token (uso único) y guardar la firma CIFRADA (AES-256-GCM) en la base de datos.
-    //    La condición estado != completed evita que dos envíos simultáneos usen el mismo token.
+    // 9. Reclamar la sesión e invalidar el token para uso único.
+    // updateMany permite evitar que dos solicitudes simultáneas
+    // completen la misma sesión.
+
     const claimed = await prisma.firmaSesion.updateMany({
-      where: { id: session.id, estado: { notIn: ['completed', 'cancelled', 'expired'] } },
+      where: {
+        id: session.id,
+        estado: {
+          notIn: ['completed', 'cancelled', 'expired'],
+        },
+        expiresAt: {
+          gt: now,
+        },
+      },
       data: {
         estado: 'completed',
         firmaPngEnc: encryptBuffer(pngBuffer),
         signedAt: now,
         completedAt: now,
-        ipAddress: req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || session.ipAddress,
-        userAgent: req.headers.get('user-agent')?.slice(0, 300) || session.userAgent,
+        ipAddress:
+          req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+          session.ipAddress,
+        userAgent:
+          req.headers.get('user-agent')?.slice(0, 300) ||
+          session.userAgent,
       },
     });
+
     if (claimed.count === 0) {
       return NextResponse.json(
-        { success: false, code: 'ALREADY_COMPLETED', error: 'Esta sesión de firma ya fue utilizada.' },
+        {
+          success: false,
+          code: 'ALREADY_COMPLETED',
+          error: 'Esta sesión de firma ya fue utilizada o expiró.',
+        },
         { status: 409 }
       );
     }
 
-    // 7. Marcar como firmados TODOS los documentos del alumno (los PDFs se generan al vuelo con la firma)
+    // 10. Identificar al alumno asociado a la sesión
     let docsStampedCount = 0;
     let targetAlumnoId = session.alumnoId;
+
     if (!targetAlumnoId && session.documentoId) {
       const doc = await prisma.documento.findUnique({
         where: { id: session.documentoId },
         select: { alumnoId: true },
       });
+
       targetAlumnoId = doc?.alumnoId || null;
     }
+
+    // 11. Marcar como firmados todos los documentos del alumno
     if (targetAlumnoId) {
       const res = await prisma.documento.updateMany({
-        where: { alumnoId: targetAlumnoId },
-        data: { firmado: true, firmaFecha: now },
+        where: {
+          alumnoId: targetAlumnoId,
+        },
+        data: {
+          firmado: true,
+          firmaFecha: now,
+        },
       });
+
       docsStampedCount = res.count;
+
       if (!session.alumnoId) {
-        await prisma.firmaSesion.update({ where: { id: session.id }, data: { alumnoId: targetAlumnoId } });
+        await prisma.firmaSesion.update({
+          where: { id: session.id },
+          data: { alumnoId: targetAlumnoId },
+        });
       }
     }
+
     const docUpdated = docsStampedCount > 0;
+
+    // 12. Preparar vista previa de la firma
     const pngPreview = `data:image/png;base64,${pngBuffer.toString('base64')}`;
 
-    // 9. Notificar inmediatamente a la PC a través de SSE
+    // 13. Notificar a la PC mediante SSE
     emitSessionEvent(token, {
       type: 'completed',
       estado: 'completed',
@@ -162,10 +267,13 @@ export async function POST(req: Request) {
         documentoId: session.documentoId,
         docUpdated,
         docsStampedCount,
-        tutorNombre: session.tutor ? `${session.tutor.apellido}, ${session.tutor.nombre}` : undefined,
+        tutorNombre: session.tutor
+          ? `${session.tutor.apellido}, ${session.tutor.nombre}`
+          : undefined,
       },
     });
 
+    // 14. Responder al cliente
     return NextResponse.json({
       success: true,
       message: 'Firma recibida y registrada correctamente.',
@@ -175,8 +283,16 @@ export async function POST(req: Request) {
         completedAt: now.toISOString(),
       },
     });
+
   } catch (error: any) {
     console.error('Error al procesar la firma:', error);
-    return NextResponse.json({ success: false, error: 'No se pudo procesar la firma' }, { status: 500 });
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'No se pudo procesar la firma',
+      },
+      { status: 500 }
+    );
   }
 }
