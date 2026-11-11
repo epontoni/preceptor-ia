@@ -1,0 +1,20 @@
+# dependencias y builds
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# SECRETOS y datos locales: nunca subir
+.env
+.env.*
+!.env.example
+*.db
+*.db-journal
+storage/
+
+# varios
+.DS_Store
+npm-debug.log*
+.vercel
+

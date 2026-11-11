@@ -1,0 +1,177 @@
+// prisma/schema.prisma
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Curso {
+  id           String        @id @default(cuid())
+  nombre       String        // Ej: "3° A"
+  anio         Int           // Ej: 3
+  division     String        // Ej: "A"
+  turno        String        // "Mañana", "Tarde", "Noche"
+  cicloLectivo Int           @default(2026)
+  inscripciones Inscripcion[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([anio, division, turno, cicloLectivo])
+}
+
+model Alumno {
+  id                   String        @id @default(cuid())
+  dni                  String        @unique
+  nombre               String
+  apellido             String
+  fechaNacimiento      DateTime
+  genero               String?
+  lugarNacimiento      String?
+  nacionalidad         String?       @default("Argentina")
+  direccion            String?
+  barrio               String?
+  localidad            String?       @default("Leones")
+  codigoPostal         String?       @default("2594")
+  departamento         String?
+  telefono             String?
+  email                String?
+  
+  // Trayectoria Escolar Previa & Hermanos
+  escuelaProcedencia   String?
+  anioAnterior         String?
+  turnoAnterior        String?
+  materiasAdeudadas    String?
+  tieneHermanos        Boolean       @default(false)
+  cantidadHermanos     Int?          @default(0)
+  cursosHermanos       String?
+
+  // Datos Médicos & Salud (ISA / CUS)
+  grupoSanguineo       String?
+  obraSocial           String?
+  nroAfiliado          String?
+  alergias             String?
+  enfermedadesCronicas String?
+  recibeAtencionMedica Boolean       @default(false)
+  tomaMedicacion       Boolean       @default(false)
+  medicacionDetalle    String?
+  patologias           String?       // Lista de patologías marcadas (Cardiovasculares, Diabetes, etc.)
+  planAlimentarioEspecial Boolean    @default(false)
+  planAlimentarioDetalle String?
+  usaAnteojos          Boolean       @default(false)
+  observacionesMedicas String?
+  urgenciasDetalle     String?
+
+  // Autorizaciones IPETYM 256
+  autorizaSalidas      Boolean       @default(true)
+  autorizaImagenes     Boolean       @default(true)
+
+  // Relaciones
+  tutores              AlumnoTutor[]
+  inscripciones        Inscripcion[]
+  documentos           Documento[]
+  firmas               FirmaSesion[]
+
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+}
+
+model Tutor {
+  id          String        @id @default(cuid())
+  dni         String        @unique
+  nombre      String
+  apellido    String
+  telefono    String
+  email       String?
+  ocupacion   String?
+  domicilio   String?
+  localidad   String?       @default("Leones")
+  nacionalidad String?      @default("Argentina")
+  alumnos     AlumnoTutor[]
+  firmas      FirmaSesion[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+}
+
+model AlumnoTutor {
+  id           String     @id @default(cuid())
+  alumnoId     String
+  tutorId      String
+  parentesco   String     @default("PADRE") // PADRE, MADRE, TUTOR_LEGAL, OTRO
+  esPrincipal  Boolean    @default(false)
+  convive      Boolean    @default(true)
+
+  alumno       Alumno     @relation(fields: [alumnoId], references: [id], onDelete: Cascade)
+  tutor        Tutor      @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+
+  @@unique([alumnoId, tutorId])
+}
+
+model Inscripcion {
+  id           String   @id @default(cuid())
+  alumnoId     String
+  cursoId      String
+  cicloLectivo Int      @default(2026)
+  estado       String   @default("REGULAR") // REGULAR, CONDICIONAL, REPITENTE
+  
+  alumno       Alumno   @relation(fields: [alumnoId], references: [id], onDelete: Cascade)
+  curso        Curso    @relation(fields: [cursoId], references: [id], onDelete: Restrict)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([alumnoId, cursoId, cicloLectivo])
+}
+
+model Documento {
+  id             String        @id @default(cuid())
+  alumnoId       String
+  tipo           String        // FICHA_INSCRIPCION, ISA, CUS, AUTORIZACION_IMAGEN, CERTIFICADO_ESCOLARIDAD
+  estado         String        @default("GENERADO") // PENDIENTE_GENERACION, GENERADO, ERROR
+  version        Int           @default(1)
+  
+  alumno         Alumno        @relation(fields: [alumnoId], references: [id], onDelete: Cascade)
+  firmas         FirmaSesion[]
+  firmado        Boolean       @default(false)
+  firmaFecha     DateTime?
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([alumnoId, tipo, version])
+}
+
+model FirmaSesion {
+  id              String        @id @default(cuid())
+  token           String        @unique // Identificador aleatorio, criptográficamente seguro y de un solo uso
+  estado          String        @default("pending") // pending, opened, signing, completed, expired, cancelled
+  documentoTitulo String        // Nombre descriptivo del documento para mostrar en el teléfono
+  tipoDocumento   String?       // FICHA_INSCRIPCION, ISA, CUS, AUTORIZACION_IMAGEN, CONTRATO, etc.
+  documentoId     String?
+  alumnoId        String?
+  tutorId         String?
+  expiresAt       DateTime      // Fecha y hora de expiración (configurable)
+
+  // Firma manuscrita (PNG) cifrada en reposo con AES-256-GCM (ver src/lib/signature/crypto.ts)
+  firmaPngEnc     String?
+
+  // Datos de auditoría técnica
+  ipAddress       String?       // IP del dispositivo que abrió / firmó
+  userAgent       String?       // User-Agent del navegador móvil
+  openedAt        DateTime?     // Momento en que el teléfono abrió la página
+  signedAt        DateTime?     // Momento en que se envió la firma
+  completedAt     DateTime?     // Momento en que se completó
+  errorMessage    String?       // Mensaje en caso de cancelación o error
+
+  // Relaciones
+  documento       Documento?    @relation(fields: [documentoId], references: [id], onDelete: SetNull)
+  alumno          Alumno?       @relation(fields: [alumnoId], references: [id], onDelete: SetNull)
+  tutor           Tutor?        @relation(fields: [tutorId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+}
+
