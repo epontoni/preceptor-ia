@@ -142,7 +142,7 @@ export const PDF_COORDINATES = {
     alumnoNombreApellido: { x: 230, y: 423, size: 9 },
     alumnoDni: { x: 440, y: 423, size: 9 },
     fechaPie: { x: 75, y: 240, size: 8.5 },
-    firmaAclaracion: { x: 125, y: 167, size: 8.5 },
+    firmaAclaracion: { x: 204, y: 158, size: 9 },
   },
 
   // --------------------------------------------------------------------------
@@ -191,9 +191,9 @@ export const FIRMA_COORDINATES: Record<string, { page: number; x: number; y: num
   AUTORIZACION_IMAGEN: {
     page: 0,
     x: 210,
-    y: 168,
+    y: 185,
     width: 175,
-    height: 48,
+    height: 45,
   },
   AUTORIZACION_EXTERNOS: {
     page: 0,

@@ -518,18 +518,6 @@ export async function generarDocumentoPdf(
     const form = pdfDoc.getForm();
     const filledFields = new Set<string>();
 
-    // Eliminar el widget duplicado inferior de firma en tutorNombreApellido si existe
-    try {
-      const tutorField = form.getTextField('tutorNombreApellido');
-      const widgets = tutorField.acroField.getWidgets();
-      for (let i = widgets.length - 1; i >= 0; i--) {
-        const rect = widgets[i].getRectangle();
-        if (rect.y < 200) {
-          tutorField.acroField.removeWidget(i);
-        }
-      }
-    } catch (e) {}
-
     const tryFillTextField = (fieldNames: string | string[], value: string, fontSize: number = 8.5) => {
       const names = Array.isArray(fieldNames) ? fieldNames : [fieldNames];
       let filled = false;
@@ -558,9 +546,12 @@ export async function generarDocumentoPdf(
     tryFillTextField(['alumnoNombreApellido', 'nombreAlumno'], `${data.apellido}, ${data.nombre}`, 9);
     tryFillTextField(['fechaCabecera', 'fecha'], `Leones, ${fechaTexto}`, 8.5);
 
-    // Fallback de coordenadas si no hay AcroForms (solo los 4 campos autorizados, sin duplicar firmas abajo)
+    // Fallback de coordenadas si no hay AcroForms
     const page = pdfDoc.getPage(0);
-    if (!filledFields.has('tutorNombreApellido')) page.drawText(cleanText(tutorNomApe), { ...coords.tutorNombreApellido, font: fontBold, color: cDark });
+    if (!filledFields.has('tutorNombreApellido')) {
+      page.drawText(cleanText(tutorNomApe), { ...coords.tutorNombreApellido, font: fontBold, color: cDark });
+      page.drawText(cleanText(tutorNomApe), { ...coords.firmaAclaracion, font: fontBold, color: cDark });
+    }
     if (!filledFields.has('tutorDni')) page.drawText(cleanText(data.tutorDni || '---'), { ...coords.tutorDni, font: fontBold, color: cDark });
     if (!filledFields.has('alumnoNombreApellido')) page.drawText(cleanText(`${data.apellido}, ${data.nombre}`), { ...coords.alumnoNombreApellido, font: fontBold, color: cPrimary });
     if (!filledFields.has('fechaCabecera')) page.drawText(cleanText(`Leones, ${fechaTexto}`), { ...coords.fechaPie, font, color: cDark });
