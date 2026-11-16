@@ -92,10 +92,24 @@ export async function POST(req: Request) {
       },
     });
 
-    // 4. Determinar URL pública para el QR
-    const hostHeader = req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost:3000';
-    const protoHeader = req.headers.get('x-forwarded-proto') || (hostHeader.includes('localhost') ? 'http' : 'https');
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || `${protoHeader}://${hostHeader}`;
+    // 4. Determinar URL pública para el QR (usando el host real desde el que se abrió la app)
+    const hostHeader = (req.headers.get('x-forwarded-host') || req.headers.get('host') || 'localhost:3000')
+      .split(',')[0]
+      .trim();
+    const protoHeader = (
+      req.headers.get('x-forwarded-proto') || (hostHeader.includes('localhost') ? 'http' : 'https')
+    )
+      .split(',')[0]
+      .trim();
+    const envUrl = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/+$/, '');
+    const isValidEnvUrl =
+      envUrl && /^https?:\/\//i.test(envUrl) && !envUrl.includes('localhost');
+    // Si la petición ya viene de un dominio público real (no localhost), priorizamos ese dominio exacto
+    const baseUrl = !hostHeader.includes('localhost')
+      ? `${protoHeader}://${hostHeader}`
+      : isValidEnvUrl
+        ? envUrl
+        : `${protoHeader}://${hostHeader}`;
     const signUrl = `${baseUrl}/firmar/${token}`;
 
     // 5. Generar código QR en formato Data URL PNG
