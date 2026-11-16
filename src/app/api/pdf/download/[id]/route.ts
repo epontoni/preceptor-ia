@@ -19,6 +19,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
         // Datos personales y de salud de menores: nunca cachear en navegadores ni proxies
         'Cache-Control': 'private, no-store, max-age=0',
         'X-Content-Type-Options': 'nosniff',
+        'X-Frame-Options': 'SAMEORIGIN',
       },
     });
   } catch (error: any) {

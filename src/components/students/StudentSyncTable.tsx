@@ -394,41 +394,50 @@ export default function StudentSyncTable({ initialAlumnos }: Props) {
 
                       {/* Documentación */}
                       <TableCell className="align-top py-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 min-w-[440px]">
                           {alumno.documentos.map((doc) => {
                             const label = DOC_NAMES[doc.tipo] || doc.tipo;
 
                             return (
                               <div
                                 key={doc.id}
-                                className="flex items-center justify-between p-2 rounded-lg bg-secondary/40 border text-xs gap-2"
+                                className="flex flex-col justify-between p-2.5 rounded-lg bg-secondary/40 border text-xs gap-2"
                               >
-                                <div className="flex flex-col overflow-hidden">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-semibold text-foreground truncate">{label}</span>
-                                    {doc.firmado && (
-                                      <Badge variant="outline" className="text-[9px] px-1 py-0 border-emerald-500/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30">
-                                        ✓ Firmado
-                                      </Badge>
-                                    )}
-                                  </div>
+                                <div className="flex items-start justify-between gap-2">
+                                  <span className="font-semibold text-foreground leading-snug">{label}</span>
+                                  {doc.firmado ? (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] px-1.5 py-0.5 shrink-0 whitespace-nowrap border-emerald-500/40 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30"
+                                    >
+                                      ✓ Firmado
+                                    </Badge>
+                                  ) : (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-[10px] px-1.5 py-0.5 shrink-0 whitespace-nowrap text-amber-600 border-amber-500/40 bg-amber-50 dark:bg-amber-950/30"
+                                    >
+                                      Pendiente
+                                    </Badge>
+                                  )}
                                 </div>
 
-                                <div className="flex items-center gap-1 shrink-0">
+                                <div className="flex items-center justify-end gap-1 pt-1 border-t border-border/50">
                                   <Button
                                     variant="ghost"
-                                    size="icon"
-                                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                    size="sm"
+                                    className="h-7 px-2 text-[11px] text-muted-foreground hover:text-foreground gap-1"
                                     title="Previsualizar PDF"
                                     onClick={() =>
                                       setPreviewDoc({
-                                        url: `/api/pdf/download/${doc.id}`,
+                                        url: `/api/pdf/download/${doc.id}?t=${Date.now()}`,
                                         title: `${label} - ${alumno.apellido}, ${alumno.nombre}`,
                                         docId: doc.id,
                                       })
                                     }
                                   >
                                     <Eye className="w-3.5 h-3.5" />
+                                    <span>Ver</span>
                                   </Button>
 
                                   <Button
@@ -465,7 +474,6 @@ export default function StudentSyncTable({ initialAlumnos }: Props) {
                                   >
                                     <Download className="w-3.5 h-3.5" />
                                   </a>
-
                                 </div>
                               </div>
                             );
