@@ -20,6 +20,8 @@ import {
   RotateCcw,
   Smartphone,
   PenTool,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
 import PhoneSignatureModal from '@/components/signature/PhoneSignatureModal';
 import { Button } from '@/components/ui/button';
@@ -111,6 +113,8 @@ export default function StudentSyncTable({ initialAlumnos }: Props) {
   const [selectedDocType, setSelectedDocType] = useState('ALL');
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; title: string; text: string } | null>(null);
   const [previewDoc, setPreviewDoc] = useState<{ url: string; title: string; docId: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AlumnoItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [signModalState, setSignModalState] = useState<{
     open: boolean;
     documentoId?: string;
@@ -134,6 +138,26 @@ export default function StudentSyncTable({ initialAlumnos }: Props) {
       }
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/alumnos/${deleteTarget.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setAlumnos((prev) => prev.filter((a) => a.id !== deleteTarget.id));
+        showToast('Registro Eliminado', data.message || 'El registro de inscripción fue eliminado correctamente.', 'success');
+        setDeleteTarget(null);
+      } else {
+        showToast('Error al Eliminar', data.error || 'No se pudo eliminar el registro.', 'error');
+      }
+    } catch (err: any) {
+      showToast('Error de Conexión', err.message || 'No se pudo conectar con el servidor.', 'error');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -483,7 +507,7 @@ export default function StudentSyncTable({ initialAlumnos }: Props) {
 
                       {/* Acciones Alumno */}
                       <TableCell className="align-top py-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
+                        <div className="flex flex-col items-end gap-1.5">
                           <Button
                             variant="outline"
                             size="sm"
@@ -497,12 +521,38 @@ export default function StudentSyncTable({ initialAlumnos }: Props) {
                                 documentoTitulo: `Legajo de Matrícula - ${alumno.apellido}, ${alumno.nombre}`,
                               });
                             }}
-                            className="h-8 text-xs font-medium border-slate-300 dark:border-slate-700 hover:bg-muted"
+                            className="h-8 text-xs font-medium border-slate-300 dark:border-slate-700 hover:bg-muted whitespace-nowrap"
                             title="Solicitar firma del tutor mediante código QR"
                           >
                             <Smartphone className="w-3.5 h-3.5 mr-1 text-primary" />
                             Firmar con teléfono
                           </Button>
+
+                          <div className="flex items-center justify-end gap-1.5">
+                            <Button
+                              asChild
+                              variant="outline"
+                              size="sm"
+                              className="h-8 px-2.5 text-xs font-medium hover:bg-muted"
+                              title="Editar datos de la inscripción"
+                            >
+                              <Link href={`/inscripcion?edit=${alumno.id}`}>
+                                <Pencil className="w-3.5 h-3.5 mr-1 text-primary" />
+                                Editar
+                              </Link>
+                            </Button>
+
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setDeleteTarget(alumno)}
+                              className="h-8 px-2.5 text-xs font-medium text-rose-600 border-rose-200 hover:bg-rose-50 hover:text-rose-700 dark:border-rose-900/50 dark:hover:bg-rose-950/40"
+                              title="Eliminar registro de inscripción"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 mr-1" />
+                              Eliminar
+                            </Button>
+                          </div>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -593,6 +643,33 @@ export default function StudentSyncTable({ initialAlumnos }: Props) {
           }
         }}
       />
+
+      {/* Modal de Confirmación para Eliminar Registro */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-rose-600">
+              <Trash2 className="w-5 h-5" />
+              <span>Eliminar Registro de Inscripción</span>
+            </DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que querés eliminar la inscripción de{' '}
+              <strong className="text-foreground">
+                {deleteTarget?.apellido}, {deleteTarget?.nombre}
+              </strong>{' '}
+              (DNI {deleteTarget?.dni})? Esta acción borrará su legajo y documentos asociados y no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" disabled={deleting} onClick={() => setDeleteTarget(null)}>
+              Cancelar
+            </Button>
+            <Button variant="destructive" disabled={deleting} onClick={handleConfirmDelete}>
+              {deleting ? 'Eliminando...' : 'Sí, eliminar registro'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

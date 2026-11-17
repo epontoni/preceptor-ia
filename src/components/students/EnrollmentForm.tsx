@@ -126,12 +126,13 @@ const PATOLOGIAS_OPTIONS = [
   { id: 'auditivas', label: 'Auditivas / Hipoacusia' },
 ];
 
-export default function EnrollmentForm() {
+export default function EnrollmentForm({ editAlumnoId }: { editAlumnoId?: string }) {
   const [step, setStep] = useState(1);
   const [driveRefreshKey, setDriveRefreshKey] = useState(0);
   const [cursos, setCursos] = useState<CursoOption[]>([]);
   const [formData, setFormData] = useState(INITIAL_FORM_DATA);
   const [loadingCursos, setLoadingCursos] = useState(true);
+  const [loadingEdit, setLoadingEdit] = useState(Boolean(editAlumnoId));
   const [saving, setSaving] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
   const [successData, setSuccessData] = useState<any>(null);
@@ -172,8 +173,91 @@ export default function EnrollmentForm() {
     loadCursos();
   }, []);
 
-  // Cargar borrador de localStorage
+  // Cargar borrador de localStorage (solo en nueva inscripción) o datos del alumno si estamos editando
   useEffect(() => {
+    if (editAlumnoId) {
+      setLoadingEdit(true);
+      fetch(`/api/alumnos/${editAlumnoId}`)
+        .then((res) => res.json())
+        .then((json) => {
+          if (json.success && json.data) {
+            const a = json.data;
+            const tutorRel = a.tutores?.[0];
+            const t = tutorRel?.tutor;
+            const insc = a.inscripciones?.[0];
+            const birthIso = a.fechaNacimiento
+              ? new Date(a.fechaNacimiento).toISOString().slice(0, 10)
+              : '2012-03-15';
+            const ageYears = a.fechaNacimiento
+              ? String(Math.abs(new Date(Date.now() - new Date(a.fechaNacimiento).getTime()).getUTCFullYear() - 1970))
+              : '14';
+            const patArr = a.patologias
+              ? String(a.patologias)
+                  .split(',')
+                  .map((s: string) => s.trim())
+                  .filter(Boolean)
+              : [];
+
+            setFormData({
+              dni: a.dni || '',
+              nombre: a.nombre || '',
+              apellido: a.apellido || '',
+              fechaNacimiento: birthIso,
+              edad: ageYears,
+              genero: a.genero || 'M',
+              lugarNacimiento: a.lugarNacimiento || 'Leones, Córdoba',
+              nacionalidad: a.nacionalidad || 'Argentina',
+              direccion: a.direccion || '',
+              barrio: a.barrio || 'Centro',
+              localidad: a.localidad || 'Leones',
+              codigoPostal: a.codigoPostal || '2594',
+              departamento: a.departamento || '',
+              telefono: a.telefono || '',
+              email: a.email || '',
+              cursoId: insc?.cursoId || insc?.curso?.id || '',
+              escuelaProcedencia: a.escuelaProcedencia || 'IPETYM Nº 256 "Lib. Gral. San Martín"',
+              anioAnterior: a.anioAnterior || '2° Año',
+              turnoAnterior: a.turnoAnterior || 'Mañana',
+              materiasAdeudadas: a.materiasAdeudadas || 'Ninguna',
+              tieneHermanos: Boolean(a.tieneHermanos),
+              cantidadHermanos: String(a.cantidadHermanos ?? 0),
+              cursosHermanos: a.cursosHermanos || '',
+              tutorDni: t?.dni || '',
+              tutorNombre: t?.nombre || '',
+              tutorApellido: t?.apellido || '',
+              tutorTelefono: t?.telefono || '',
+              tutorEmail: t?.email || '',
+              tutorParentesco: tutorRel?.parentesco || 'PADRE',
+              tutorOcupacion: t?.ocupacion || 'Empleado / Comerciante',
+              tutorDomicilio: t?.domicilio || a.direccion || '',
+              tutorLocalidad: t?.localidad || 'Leones',
+              tutorNacionalidad: t?.nacionalidad || 'Argentina',
+              grupoSanguineo: a.grupoSanguineo || '0 Positivo',
+              obraSocial: a.obraSocial || 'APROSS',
+              nroAfiliado: a.nroAfiliado || '',
+              enfermedadesCronicas: a.enfermedadesCronicas || 'Ninguna',
+              recibeAtencionMedica: Boolean(a.recibeAtencionMedica),
+              tomaMedicacion: Boolean(a.tomaMedicacion),
+              medicacionDetalle: a.medicacionDetalle || '',
+              alergias: a.alergias || '',
+              patologias: patArr,
+              planAlimentarioEspecial: Boolean(a.planAlimentarioEspecial),
+              planAlimentarioDetalle: a.planAlimentarioDetalle || '',
+              usaAnteojos: Boolean(a.usaAnteojos),
+              observacionesMedicas: a.observacionesMedicas || '',
+              urgenciasDetalle: a.urgenciasDetalle || '',
+              autorizaSalidas: a.autorizaSalidas !== undefined ? Boolean(a.autorizaSalidas) : true,
+              autorizaImagenes: a.autorizaImagenes !== undefined ? Boolean(a.autorizaImagenes) : true,
+            });
+          } else {
+            setErrorMessage(json.error || 'No se pudo cargar el registro para editar');
+          }
+        })
+        .catch(() => setErrorMessage('Error al cargar los datos del estudiante'))
+        .finally(() => setLoadingEdit(false));
+      return;
+    }
+
     try {
       const saved = localStorage.getItem(DRAFT_STORAGE_KEY);
       if (saved) {
@@ -181,17 +265,18 @@ export default function EnrollmentForm() {
         setFormData((prev) => ({ ...prev, ...parsed }));
       }
     } catch {}
-  }, []);
+  }, [editAlumnoId]);
 
-  // Guardar borrador automáticamente al cambiar datos
+  // Guardar borrador automáticamente al cambiar datos (solo en alta nueva)
   useEffect(() => {
+    if (editAlumnoId) return;
     try {
       localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(formData));
       setDraftSaved(true);
       const timer = setTimeout(() => setDraftSaved(false), 2000);
       return () => clearTimeout(timer);
     } catch {}
-  }, [formData]);
+  }, [formData, editAlumnoId]);
 
   const handleChange = (field: string, value: any) => {
     setFormData((prev) => {
@@ -239,6 +324,7 @@ export default function EnrollmentForm() {
     try {
       const payload = {
         ...formData,
+        alumnoId: editAlumnoId || undefined,
         firmaToken: capturedSignature?.token,
       };
 
@@ -493,25 +579,42 @@ export default function EnrollmentForm() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-foreground flex items-center gap-2">
-            <span>Matriculación & Legajo Digital</span>
+            <span>{editAlumnoId ? 'Editar Inscripción & Legajo' : 'Matriculación & Legajo Digital'}</span>
             <Badge variant="outline" className="text-xs font-mono">Ciclo 2026</Badge>
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Completa el formulario oficial del IPETYM 256 para generar automáticamente la ficha de matrícula, ISA y CUS en PDF.
+            {editAlumnoId
+              ? 'Modifica los datos del estudiante o su tutor. Los documentos PDF reflejarán los cambios automáticamente.'
+              : 'Completa el formulario oficial del IPETYM 256 para generar automáticamente la ficha de matrícula, ISA y CUS en PDF.'}
           </p>
         </div>
 
         <div className="flex items-center gap-2 self-start sm:self-auto">
-          {draftSaved && (
+          {draftSaved && !editAlumnoId && (
             <span className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1 animate-pulse">
               <Save className="w-3.5 h-3.5" /> Borrador guardado
             </span>
           )}
-          <Button variant="ghost" size="sm" onClick={resetForm} className="text-muted-foreground text-xs">
-            <RotateCcw className="w-3.5 h-3.5 mr-1" /> Limpiar
-          </Button>
+          {editAlumnoId ? (
+            <Button asChild variant="outline" size="sm" className="text-xs">
+              <Link href="/">
+                <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Volver al Panel
+              </Link>
+            </Button>
+          ) : (
+            <Button variant="ghost" size="sm" onClick={resetForm} className="text-muted-foreground text-xs">
+              <RotateCcw className="w-3.5 h-3.5 mr-1" /> Limpiar
+            </Button>
+          )}
         </div>
       </div>
+
+      {loadingEdit && (
+        <Card className="p-8 text-center text-sm text-muted-foreground flex items-center justify-center gap-2">
+          <Loader2 className="w-4 h-4 animate-spin text-primary" />
+          <span>Cargando datos de la inscripción...</span>
+        </Card>
+      )}
 
       {/* Stepper Navigation Responsive */}
       <div className="space-y-3">
@@ -1410,7 +1513,7 @@ export default function EnrollmentForm() {
                 ) : (
                   <>
                     <FileCheck2 className="w-4 h-4" />
-                    Confirmar e Inscribir Alumno
+                    {editAlumnoId ? 'Guardar Cambios' : 'Confirmar e Inscribir Alumno'}
                   </>
                 )}
               </Button>

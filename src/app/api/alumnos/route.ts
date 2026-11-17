@@ -50,6 +50,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const {
       // 1. Datos Alumno
+      alumnoId,
       dni,
       nombre,
       apellido,
@@ -169,14 +170,22 @@ export async function POST(req: Request) {
       autorizaImagenes: autorizaImagenes !== undefined ? Boolean(autorizaImagenes) : true,
     };
 
-    const alumno = await prisma.alumno.upsert({
-      where: { dni: String(dni).trim() },
-      update: alumnoData,
-      create: {
-        dni: String(dni).trim(),
-        ...alumnoData,
-      },
-    });
+    const alumno = alumnoId
+      ? await prisma.alumno.update({
+          where: { id: String(alumnoId) },
+          data: {
+            dni: String(dni).trim(),
+            ...alumnoData,
+          },
+        })
+      : await prisma.alumno.upsert({
+          where: { dni: String(dni).trim() },
+          update: alumnoData,
+          create: {
+            dni: String(dni).trim(),
+            ...alumnoData,
+          },
+        });
 
     // 2. Crear o actualizar Tutor si se proveyó
     let tutorRecord: any = null;
@@ -243,9 +252,16 @@ export async function POST(req: Request) {
       }
     }
 
-    // 3. Crear Inscripción en Curso
+    // 3. Crear o actualizar Inscripción en Curso (reemplaza el curso previo del ciclo 2026 si fue modificado)
     const curso = await prisma.curso.findUnique({ where: { id: cursoId } });
     if (curso) {
+      await prisma.inscripcion.deleteMany({
+        where: {
+          alumnoId: alumno.id,
+          cicloLectivo: 2026,
+          cursoId: { not: curso.id },
+        },
+      });
       await prisma.inscripcion.upsert({
         where: {
           alumnoId_cursoId_cicloLectivo: {
